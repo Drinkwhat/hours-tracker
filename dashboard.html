@@ -79,6 +79,11 @@
       <button data-days="365">12 months</button>
       <button data-days="0">All</button>
     </div>
+    <div class="seg" id="unit" role="group" aria-label="Bars">
+      <button data-unit="day">Day</button>
+      <button data-unit="week">Week</button>
+      <button data-unit="month">Month</button>
+    </div>
     <select id="proj" aria-label="Project"></select>
   </div>
 
@@ -123,7 +128,7 @@ const TOP = ranked.slice(0, 4);
 const color = p => TOP.includes(p) ? `var(--s${TOP.indexOf(p) + 1})` : "var(--other)";
 const group = p => TOP.includes(p) ? p : "Other";
 
-const state = { days: 90, proj: "" };
+const state = { days: 90, proj: "", unit: "" }; // unit "" = pick from the period length
 try { Object.assign(state, JSON.parse(localStorage.getItem("hours-filters")) || {}); } catch (e) {}
 
 const val = r => r.hours;
@@ -131,13 +136,15 @@ const val = r => r.hours;
 $("proj").innerHTML = `<option value="">All projects</option>` +
   ranked.map(p => `<option value="${p}">${p}</option>`).join("");
 
-function bucketKey(dateStr, monthly) {
-  if (monthly) return dateStr.slice(0, 7);
+function bucketKey(dateStr, unit) {
+  if (unit === "day") return dateStr;
+  if (unit === "month") return dateStr.slice(0, 7);
   const d = new Date(dateStr + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); // Monday
   return iso(d);
 }
-function bucketLabel(k, monthly) {
+function bucketLabel(k, unit) {
+  const monthly = unit === "month";
   const d = new Date((monthly ? k + "-01" : k) + "T00:00:00Z");
   return monthly ? d.toLocaleDateString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" })
                  : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -167,13 +174,16 @@ function render() {
     ["Days worked", days, days ? `${fmt(tot / days)} h per day worked` : ""],
   ].map(([l, v, h]) => `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join("");
 
-  drawChart(rows, spanDays > 120);
+  const unit = state.unit || (spanDays <= 31 ? "day" : spanDays <= 120 ? "week" : "month");
+  document.querySelectorAll("#unit button").forEach(b => b.setAttribute("aria-pressed", b.dataset.unit === unit));
+  drawChart(rows, unit);
   drawTable(rows);
   drawDay();
 }
 
-function drawChart(rows, monthly) {
-  $("chart-title").textContent = `Hours per ${monthly ? "month" : "week"}`;
+function drawChart(rows, unit) {
+  const monthly = unit === "month";
+  $("chart-title").textContent = `Hours per ${unit}`;
   const chart = $("chart"), tip = $("tip");
   chart.querySelector("svg")?.remove(); chart.querySelector(".empty")?.remove();
   const series = [...TOP, "Other"].filter(s => rows.some(r => group(r.project) === s));
@@ -183,16 +193,16 @@ function drawChart(rows, monthly) {
 
   // contiguous buckets, empty ones included
   const keys = [];
-  const start = new Date(bucketKey(rows.reduce((m, r) => r.date < m ? r.date : m, "9999"), monthly) + (monthly ? "-01" : "") + "T00:00:00Z");
-  const end = bucketKey(rows.reduce((m, r) => r.date > m ? r.date : m, ""), monthly);
+  const start = new Date(bucketKey(rows.reduce((m, r) => r.date < m ? r.date : m, "9999"), unit) + (monthly ? "-01" : "") + "T00:00:00Z");
+  const end = bucketKey(rows.reduce((m, r) => r.date > m ? r.date : m, ""), unit);
   for (let d = start; ; ) {
     const k = monthly ? iso(d).slice(0, 7) : iso(d);
     keys.push(k); if (k >= end) break;
-    monthly ? d.setUTCMonth(d.getUTCMonth() + 1) : d.setUTCDate(d.getUTCDate() + 7);
+    monthly ? d.setUTCMonth(d.getUTCMonth() + 1) : d.setUTCDate(d.getUTCDate() + (unit === "day" ? 1 : 7));
   }
   const data = keys.map(k => ({ k, v: Object.fromEntries(series.map(s => [s, 0])) }));
   const idx = Object.fromEntries(keys.map((k, i) => [k, i]));
-  rows.forEach(r => data[idx[bucketKey(r.date, monthly)]].v[group(r.project)] += val(r));
+  rows.forEach(r => data[idx[bucketKey(r.date, unit)]].v[group(r.project)] += val(r));
   data.forEach(d => d.tot = series.reduce((s, x) => s + d.v[x], 0));
 
   const W = 1000, H = 300, m = { t: 12, r: 8, b: 28, l: 40 };
@@ -202,7 +212,7 @@ function drawChart(rows, monthly) {
   const max = Math.ceil(rawMax / step) * step;
   const y = v => m.t + ih - v / max * ih;
   const bw = iw / data.length, barW = Math.max(2, Math.min(40, bw * 0.7));
-  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours per ${monthly ? "month" : "week"}">`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours per ${unit}">`;
   for (let v = 0; v <= max; v += step)
     s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>` +
          `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
@@ -218,7 +228,7 @@ function drawChart(rows, monthly) {
       s += `<path d="${roundTop(x, top + gap, barW, Math.max(0, h - gap), r)}" fill="${sr === "Other" ? "var(--other)" : color(sr)}"/>`;
       acc += d.v[sr];
     });
-    if (i % every === 0) s += `<text x="${m.l + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${bucketLabel(d.k, monthly)}</text>`;
+    if (i % every === 0) s += `<text x="${m.l + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${bucketLabel(d.k, unit)}</text>`;
     s += `<rect x="${m.l + i * bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-i="${i}"/>`;
   });
   s += `</svg>`;
@@ -228,7 +238,7 @@ function drawChart(rows, monthly) {
   svg.addEventListener("mousemove", e => {
     const i = e.target.dataset?.i; if (i === undefined) return tip.style.display = "none";
     const d = data[i];
-    tip.innerHTML = `<b>${monthly ? bucketLabel(d.k, true) : "Week of " + bucketLabel(d.k, false)}</b>` +
+    tip.innerHTML = `<b>${unit === "week" ? "Week of " + bucketLabel(d.k, unit) : unit === "day" ? new Date(d.k + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : bucketLabel(d.k, unit)}</b>` +
       series.filter(x => d.v[x] > 0).map(x => `<div><span><i style="background:${x === "Other" ? "var(--other)" : color(x)}"></i>${x}</span><span>${fmt(d.v[x])} h</span></div>`).join("") +
       `<div style="margin-top:4px;color:var(--text-secondary)"><span>Total</span><span>${fmt(d.tot)} h</span></div>`;
     const rect = chart.getBoundingClientRect();
@@ -236,6 +246,11 @@ function drawChart(rows, monthly) {
     const left = e.clientX - rect.left + 14;
     tip.style.left = Math.min(left, rect.width - tip.offsetWidth - 4) + "px";
     tip.style.top = (e.clientY - rect.top - 10) + "px";
+  });
+  // clicking a day bar opens it in "Day detail"
+  svg.addEventListener("click", e => {
+    const i = e.target.dataset?.i; if (i === undefined || unit !== "day") return;
+    $("day").value = data[i].k; drawDay();
   });
   svg.addEventListener("mouseleave", () => tip.style.display = "none");
 }
@@ -271,7 +286,8 @@ function drawDay() {
 $("day").value = ROWS.length ? ROWS[ROWS.length - 1].date : iso(new Date());
 $("day").addEventListener("change", drawDay);
 
-$("range").addEventListener("click", e => { if (e.target.dataset.days) { state.days = +e.target.dataset.days; render(); } });
+$("range").addEventListener("click", e => { if (e.target.dataset.days) { state.days = +e.target.dataset.days; state.unit = ""; render(); } });
+$("unit").addEventListener("click", e => { if (e.target.dataset.unit) { state.unit = e.target.dataset.unit; render(); } });
 $("proj").addEventListener("change", e => { state.proj = e.target.value; render(); });
 render();
 </script>

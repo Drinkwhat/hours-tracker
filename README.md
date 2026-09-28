@@ -55,10 +55,10 @@ python3 hours.py add acme-api 3 meeting "workshop" --date 2026-09-26
 
 `dashboard.html` is a static page. A `file://` page cannot `fetch` a CSV, so every write also regenerates `hours-data.js` (`window.HOURS = [...]`), which the page loads with a `<script>` tag. Reload the page to see new data.
 
-- hours per week or per month, stacked by project (top 4 + "Other")
+- hours per day, week or month (picked from the period, or chosen by hand), stacked by project (top 4 + "Other")
 - filters: last 30 days, 3 months, year to date, 12 months, all; per project
 - per-project table split into measured / estimated / manual
-- day detail: every session of a given day
+- day detail: every session of a given day (click a bar in the daily view)
 
 Without `hours-data.js`, the page falls back to `example-data.js` (fake data), which is what the screenshot shows.
 
