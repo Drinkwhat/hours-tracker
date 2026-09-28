@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work hours</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --grid: #e4e3df; --border: #d9d8d3;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --other: #a3a29c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-0: #111110; --surface-1: #1a1a19; --grid: #2e2e2c; --border: #3a3a37;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --other: #6b6a65;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #111110; --surface-1: #1a1a19; --grid: #2e2e2c; --border: #3a3a37;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --other: #6b6a65;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: var(--surface-1); color: var(--text-secondary); border: 0; padding: 7px 12px;
+                font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); }
+  select { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+           border-radius: 8px; padding: 7px 10px; font: inherit; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .tile .label { color: var(--text-secondary); font-size: 13px; }
+  .tile .value { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .hint { color: var(--text-muted); font-size: 12px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 8px; color: var(--text-secondary); font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .chart { position: relative; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+         border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+         white-space: nowrap; display: none; z-index: 2; }
+  .tip b { display: block; margin-bottom: 4px; }
+  .tip div { display: flex; justify-content: space-between; gap: 16px; }
+  .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .grid2 { display: grid; gap: 12px; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-secondary); font-weight: 500; font-size: 13px; }
+  tfoot td { font-weight: 600; border-bottom: 0; }
+  .note { color: var(--text-muted); font-size: 12px; margin-top: 10px; }
+  .empty { color: var(--text-muted); padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Work hours</h1>
+  <p class="sub" id="sub"></p>
+
+  <div class="filters">
+    <div class="seg" id="range" role="group" aria-label="Period">
+      <button data-days="30">30 days</button>
+      <button data-days="90">3 months</button>
+      <button data-days="-1" title="Since January 1">Year to date</button>
+      <button data-days="365">12 months</button>
+      <button data-days="0">All</button>
+    </div>
+    <select id="proj" aria-label="Project"></select>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section class="card">
+    <h2 id="chart-title"></h2>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="chart"><div class="tip" id="tip"></div></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>By project</h2>
+      <table id="table"></table>
+      <p class="note">Measured = days with Claude Code prompts · Estimated = commit-only days (each session ≥ 1h) · Manual = meetings and other entries added by hand.</p>
+    </section>
+    <section class="card">
+      <h2>Day detail <input type="date" id="day" aria-label="Day" style="margin-left:8px"></h2>
+      <table id="daytable"></table>
+      <p class="note">Today shows up after tomorrow's first sync. Meetings: <code>python3 hours.py add &lt;project&gt; &lt;hours&gt; meeting "notes" [--date YYYY-MM-DD]</code></p>
+    </section>
+  </div>
+</main>
+
+<script src="example-data.js"></script>
+<script src="hours-data.js"></script>
+<script>
+// real data (hours-data.js, git-ignored) wins over the bundled example
+const EXAMPLE = !window.HOURS;
+const ROWS = (window.HOURS || window.HOURS_EXAMPLE || []).map(r => ({ ...r, hours: +r.hours }));
+const DAY = 864e5;
+const fmt = h => h.toLocaleString("en-GB", { maximumFractionDigits: h < 10 ? 1 : 0 });
+const iso = d => d.toISOString().slice(0, 10);
+const $ = id => document.getElementById(id);
+
+// Color is tied to the project (rank over the whole history), never to the filtered rank.
+const totals = {};
+ROWS.forEach(r => totals[r.project] = (totals[r.project] || 0) + r.hours);
+const ranked = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+const TOP = ranked.slice(0, 4);
+const color = p => TOP.includes(p) ? `var(--s${TOP.indexOf(p) + 1})` : "var(--other)";
+const group = p => TOP.includes(p) ? p : "Other";
+
+const state = { days: 90, proj: "" };
+try { Object.assign(state, JSON.parse(localStorage.getItem("hours-filters")) || {}); } catch (e) {}
+
+const val = r => r.hours;
+
+$("proj").innerHTML = `<option value="">All projects</option>` +
+  ranked.map(p => `<option value="${p}">${p}</option>`).join("");
+
+function bucketKey(dateStr, monthly) {
+  if (monthly) return dateStr.slice(0, 7);
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); // Monday
+  return iso(d);
+}
+function bucketLabel(k, monthly) {
+  const d = new Date((monthly ? k + "-01" : k) + "T00:00:00Z");
+  return monthly ? d.toLocaleDateString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" })
+                 : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function render() {
+  document.querySelectorAll("#range button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.days === state.days));
+  $("proj").value = state.proj;
+  try { localStorage.setItem("hours-filters", JSON.stringify(state)); } catch (e) {}
+
+  const last = ROWS.length ? ROWS.reduce((m, r) => r.date > m ? r.date : m, "") : iso(new Date());
+  const from = state.days === -1 ? last.slice(0, 4) + "-01-01" // YTD
+    : state.days ? iso(new Date(new Date(last).getTime() - (state.days - 1) * DAY)) : "0000";
+  const rows = ROWS.filter(r => r.date >= from && (!state.proj || r.project === state.proj));
+  $("sub").textContent = ROWS.length
+    ? `Data up to ${new Date(last).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} · ${ROWS.length} rows in hours.csv${EXAMPLE ? " (example data)" : ""}`
+    : "No data: run python3 hours.py sync";
+
+  // KPI
+  const tot = rows.reduce((s, r) => s + val(r), 0);
+  const days = new Set(rows.map(r => r.date)).size;
+  const spanDays = rows.length ? (new Date(last) - new Date(state.days ? from : rows[0].date)) / DAY + 1 : 0;
+  const weeks = Math.max(1, spanDays / 7);
+  $("tiles").innerHTML = [
+    ["Total hours", fmt(tot) + " h", `${state.proj || "all projects"}`],
+    ["Weekly average", fmt(tot / weeks) + " h", `over ${fmt(weeks)} weeks`],
+    ["Days worked", days, days ? `${fmt(tot / days)} h per day worked` : ""],
+  ].map(([l, v, h]) => `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join("");
+
+  drawChart(rows, spanDays > 120);
+  drawTable(rows);
+  drawDay();
+}
+
+function drawChart(rows, monthly) {
+  $("chart-title").textContent = `Hours per ${monthly ? "month" : "week"}`;
+  const chart = $("chart"), tip = $("tip");
+  chart.querySelector("svg")?.remove(); chart.querySelector(".empty")?.remove();
+  const series = [...TOP, "Other"].filter(s => rows.some(r => group(r.project) === s));
+  $("legend").innerHTML = series.length > 1
+    ? series.map(s => `<span><i style="background:${s === "Other" ? "var(--other)" : color(s)}"></i>${s}</span>`).join("") : "";
+  if (!rows.length) { chart.insertAdjacentHTML("beforeend", `<div class="empty">No hours in this period</div>`); return; }
+
+  // contiguous buckets, empty ones included
+  const keys = [];
+  const start = new Date(bucketKey(rows.reduce((m, r) => r.date < m ? r.date : m, "9999"), monthly) + (monthly ? "-01" : "") + "T00:00:00Z");
+  const end = bucketKey(rows.reduce((m, r) => r.date > m ? r.date : m, ""), monthly);
+  for (let d = start; ; ) {
+    const k = monthly ? iso(d).slice(0, 7) : iso(d);
+    keys.push(k); if (k >= end) break;
+    monthly ? d.setUTCMonth(d.getUTCMonth() + 1) : d.setUTCDate(d.getUTCDate() + 7);
+  }
+  const data = keys.map(k => ({ k, v: Object.fromEntries(series.map(s => [s, 0])) }));
+  const idx = Object.fromEntries(keys.map((k, i) => [k, i]));
+  rows.forEach(r => data[idx[bucketKey(r.date, monthly)]].v[group(r.project)] += val(r));
+  data.forEach(d => d.tot = series.reduce((s, x) => s + d.v[x], 0));
+
+  const W = 1000, H = 300, m = { t: 12, r: 8, b: 28, l: 40 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const rawMax = Math.max(...data.map(d => d.tot), 1);
+  const step = [1, 2, 5, 10, 20, 25, 50, 100].find(s => rawMax / s <= 5) || 200;
+  const max = Math.ceil(rawMax / step) * step;
+  const y = v => m.t + ih - v / max * ih;
+  const bw = iw / data.length, barW = Math.max(2, Math.min(40, bw * 0.7));
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours per ${monthly ? "month" : "week"}">`;
+  for (let v = 0; v <= max; v += step)
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>` +
+         `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  const every = Math.ceil(data.length / 12);
+  data.forEach((d, i) => {
+    const x = m.l + i * bw + (bw - barW) / 2;
+    let acc = 0;
+    const segs = series.filter(sr => d.v[sr] > 0);
+    segs.forEach((sr, j) => {
+      const h = d.v[sr] / max * ih, top = y(acc + d.v[sr]);
+      const gap = j < segs.length - 1 ? 2 : 0; // 2px of surface between segments
+      const r = j === segs.length - 1 ? Math.min(4, barW / 2, h) : 0;
+      s += `<path d="${roundTop(x, top + gap, barW, Math.max(0, h - gap), r)}" fill="${sr === "Other" ? "var(--other)" : color(sr)}"/>`;
+      acc += d.v[sr];
+    });
+    if (i % every === 0) s += `<text x="${m.l + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${bucketLabel(d.k, monthly)}</text>`;
+    s += `<rect x="${m.l + i * bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-i="${i}"/>`;
+  });
+  s += `</svg>`;
+  chart.insertAdjacentHTML("beforeend", s);
+
+  const svg = chart.querySelector("svg");
+  svg.addEventListener("mousemove", e => {
+    const i = e.target.dataset?.i; if (i === undefined) return tip.style.display = "none";
+    const d = data[i];
+    tip.innerHTML = `<b>${monthly ? bucketLabel(d.k, true) : "Week of " + bucketLabel(d.k, false)}</b>` +
+      series.filter(x => d.v[x] > 0).map(x => `<div><span><i style="background:${x === "Other" ? "var(--other)" : color(x)}"></i>${x}</span><span>${fmt(d.v[x])} h</span></div>`).join("") +
+      `<div style="margin-top:4px;color:var(--text-secondary)"><span>Total</span><span>${fmt(d.tot)} h</span></div>`;
+    const rect = chart.getBoundingClientRect();
+    tip.style.display = "block";
+    const left = e.clientX - rect.left + 14;
+    tip.style.left = Math.min(left, rect.width - tip.offsetWidth - 4) + "px";
+    tip.style.top = (e.clientY - rect.top - 10) + "px";
+  });
+  svg.addEventListener("mouseleave", () => tip.style.display = "none");
+}
+
+function roundTop(x, y, w, h, r) {
+  if (h <= 0) return "";
+  r = Math.min(r, h);
+  return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
+}
+
+function drawTable(rows) {
+  const by = {};
+  rows.forEach(r => {
+    const b = by[r.project] ||= { mis: 0, sti: 0, man: 0 };
+    b[r.source === "auto-claude" ? "mis" : r.source === "auto-git" ? "sti" : "man"] += val(r);
+  });
+  const list = Object.entries(by).map(([p, b]) => ({ p, ...b, tot: b.mis + b.sti + b.man })).sort((a, b) => b.tot - a.tot);
+  const sum = k => list.reduce((s, x) => s + x[k], 0);
+  const cell = v => v ? fmt(v) : `<span style="color:var(--text-muted)">–</span>`;
+  $("table").innerHTML = `<thead><tr><th>Project</th><th>Measured</th><th>Estimated</th><th>Manual</th><th>Total</th></tr></thead><tbody>` +
+    list.map(x => `<tr><td><i style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;background:${color(x.p)}"></i>${x.p}</td><td>${cell(x.mis)}</td><td>${cell(x.sti)}</td><td>${cell(x.man)}</td><td>${fmt(x.tot)}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td>Total</td><td>${fmt(sum("mis"))}</td><td>${fmt(sum("sti"))}</td><td>${fmt(sum("man"))}</td><td>${fmt(sum("tot"))}</td></tr></tfoot>`;
+}
+
+function drawDay() {
+  const rows = ROWS.filter(r => r.date === $("day").value && (!state.proj || r.project === state.proj));
+  $("daytable").innerHTML = rows.length
+    ? `<thead><tr><th>Time</th><th>Project</th><th>Type</th><th>Source</th><th>Hours</th></tr></thead><tbody>` +
+      rows.map(r => `<tr><td>${r.start ? r.start + "–" + r.end : "–"}${r.notes ? ` <span style="color:var(--text-muted)">${r.notes}</span>` : ""}</td><td>${r.project}</td><td>${r.type}</td><td>${r.source}</td><td>${fmt(r.hours)}</td></tr>`).join("") +
+      `</tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td>${fmt(rows.reduce((s, r) => s + r.hours, 0))}</td></tr></tfoot>`
+    : `<tbody><tr><td class="empty">No hours logged</td></tr></tbody>`;
+}
+$("day").value = ROWS.length ? ROWS[ROWS.length - 1].date : iso(new Date());
+$("day").addEventListener("change", drawDay);
+
+$("range").addEventListener("click", e => { if (e.target.dataset.days) { state.days = +e.target.dataset.days; render(); } });
+$("proj").addEventListener("change", e => { state.proj = e.target.value; render(); });
+render();
+</script>
+</body>
+</html>

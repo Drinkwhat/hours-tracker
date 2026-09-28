@@ -1,0 +1,10 @@
+# personal data
+hours.csv
+hours-data.js
+# pre-rename files
+ore.py
+ore.csv
+ore-data.js
+__pycache__/
+.playwright-mcp/
+.DS_Store
