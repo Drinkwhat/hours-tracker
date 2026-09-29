@@ -124,17 +124,20 @@ const $ = id => document.getElementById(id);
 const totals = {};
 ROWS.forEach(r => totals[r.project] = (totals[r.project] || 0) + r.hours);
 const ranked = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
-const TOP = ranked.slice(0, 4);
+let TOP = [];
 const color = p => TOP.includes(p) ? `var(--s${TOP.indexOf(p) + 1})` : "var(--other)";
 const group = p => TOP.includes(p) ? p : "Other";
 
-const state = { days: 90, proj: "", unit: "" }; // unit "" = pick from the period length
+const state = { days: 90, proj: "", unit: "", excl: [] }; // unit "" = pick from the period length
 try { Object.assign(state, JSON.parse(localStorage.getItem("hours-filters")) || {}); } catch (e) {}
 
 const val = r => r.hours;
 
 $("proj").innerHTML = `<option value="">All projects</option>` +
   ranked.map(p => `<option value="${p}">${p}</option>`).join("");
+
+const inProj = r => !state.proj || r.project === state.proj;
+const keep = r => inProj(r) &&!state.excl.includes(r.project);
 
 function bucketKey(dateStr, unit) {
   if (unit === "day") return dateStr;
@@ -158,7 +161,9 @@ function render() {
   const last = ROWS.length ? ROWS.reduce((m, r) => r.date > m ? r.date : m, "") : iso(new Date());
   const from = state.days === -1 ? last.slice(0, 4) + "-01-01" // YTD
     : state.days ? iso(new Date(new Date(last).getTime() - (state.days - 1) * DAY)) : "0000";
-  const rows = ROWS.filter(r => r.date >= from && (!state.proj || r.project === state.proj));
+  TOP = ranked.filter(p => !state.excl.includes(p)).slice(0, 4); // colors follow the visible projects
+  const inPeriod = ROWS.filter(r => r.date >= from && inProj(r));
+  const rows = inPeriod.filter(keep);
   $("sub").textContent = ROWS.length
     ? `Data up to ${new Date(last).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} · ${ROWS.length} rows in hours.csv${EXAMPLE ? " (example data)" : ""}`
     : "No data: run python3 hours.py sync";
@@ -169,7 +174,7 @@ function render() {
   const spanDays = rows.length ? (new Date(last) - new Date(state.days ? from : rows[0].date)) / DAY + 1 : 0;
   const weeks = Math.max(1, spanDays / 7);
   $("tiles").innerHTML = [
-    ["Total hours", fmt(tot) + " h", `${state.proj || "all projects"}`],
+    ["Total hours", fmt(tot) + " h", `${state.proj || "all projects"}${state.excl.length ? " · minus " + state.excl.join(", ") : ""}`],
     ["Weekly average", fmt(tot / weeks) + " h", `over ${fmt(weeks)} weeks`],
     ["Days worked", days, days ? `${fmt(tot / days)} h per day worked` : ""],
   ].map(([l, v, h]) => `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join("");
@@ -177,7 +182,7 @@ function render() {
   const unit = state.unit || (spanDays <= 31 ? "day" : spanDays <= 120 ? "week" : "month");
   document.querySelectorAll("#unit button").forEach(b => b.setAttribute("aria-pressed", b.dataset.unit === unit));
   drawChart(rows, unit);
-  drawTable(rows);
+  drawTable(inPeriod);
   drawDay();
 }
 
@@ -207,7 +212,8 @@ function drawChart(rows, unit) {
 
   const W = 1000, H = 300, m = { t: 12, r: 8, b: 28, l: 40 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
-  const rawMax = Math.max(...data.map(d => d.tot), 1);
+  const target = { day: 8, week: 40, month: 160 }[unit]; // ponytail: hardcoded, make configurable if needed
+  const rawMax = Math.max(...data.map(d => d.tot), target);
   const step = [1, 2, 5, 10, 20, 25, 50, 100].find(s => rawMax / s <= 5) || 200;
   const max = Math.ceil(rawMax / step) * step;
   const y = v => m.t + ih - v / max * ih;
@@ -216,6 +222,8 @@ function drawChart(rows, unit) {
   for (let v = 0; v <= max; v += step)
     s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>` +
          `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(target)}" y2="${y(target)}" stroke="var(--text-secondary)" stroke-dasharray="6 4"/>` +
+       `<text x="${W - m.r}" y="${y(target) - 4}" text-anchor="end">${target} h</text>`;
   const every = Math.ceil(data.length / 12);
   data.forEach((d, i) => {
     const x = m.l + i * bw + (bw - barW) / 2;
@@ -228,6 +236,7 @@ function drawChart(rows, unit) {
       s += `<path d="${roundTop(x, top + gap, barW, Math.max(0, h - gap), r)}" fill="${sr === "Other" ? "var(--other)" : color(sr)}"/>`;
       acc += d.v[sr];
     });
+    if (d.tot > target) s += `<text x="${m.l + i * bw + bw / 2}" y="${y(d.tot) - 4}" text-anchor="middle" fill="#d9480f" font-weight="600">+${fmt(d.tot - target)}</text>`;
     if (i % every === 0) s += `<text x="${m.l + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${bucketLabel(d.k, unit)}</text>`;
     s += `<rect x="${m.l + i * bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-i="${i}"/>`;
   });
@@ -240,7 +249,7 @@ function drawChart(rows, unit) {
     const d = data[i];
     tip.innerHTML = `<b>${unit === "week" ? "Week of " + bucketLabel(d.k, unit) : unit === "day" ? new Date(d.k + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : bucketLabel(d.k, unit)}</b>` +
       series.filter(x => d.v[x] > 0).map(x => `<div><span><i style="background:${x === "Other" ? "var(--other)" : color(x)}"></i>${x}</span><span>${fmt(d.v[x])} h</span></div>`).join("") +
-      `<div style="margin-top:4px;color:var(--text-secondary)"><span>Total</span><span>${fmt(d.tot)} h</span></div>`;
+      `<div style="margin-top:4px;color:var(--text-secondary)"><span>Total</span><span>${fmt(d.tot)} h${d.tot > target ? ` (+${fmt(d.tot - target)} over ${target})` : ""}</span></div>`;
     const rect = chart.getBoundingClientRect();
     tip.style.display = "block";
     const left = e.clientX - rect.left + 14;
@@ -264,19 +273,26 @@ function roundTop(x, y, w, h, r) {
 function drawTable(rows) {
   const by = {};
   rows.forEach(r => {
-    const b = by[r.project] ||= { mis: 0, sti: 0, man: 0 };
+    const b = by[r.project] ||= { mis: 0, sti: 0, man: 0, off: state.excl.includes(r.project) };
     b[r.source === "auto-claude" ? "mis" : r.source === "auto-git" ? "sti" : "man"] += val(r);
   });
   const list = Object.entries(by).map(([p, b]) => ({ p, ...b, tot: b.mis + b.sti + b.man })).sort((a, b) => b.tot - a.tot);
-  const sum = k => list.reduce((s, x) => s + x[k], 0);
+  const sum = k => list.reduce((s, x) => s + (x.off ? 0 : x[k]), 0);
   const cell = v => v ? fmt(v) : `<span style="color:var(--text-muted)">–</span>`;
   $("table").innerHTML = `<thead><tr><th>Project</th><th>Measured</th><th>Estimated</th><th>Manual</th><th>Total</th></tr></thead><tbody>` +
-    list.map(x => `<tr><td><i style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;background:${color(x.p)}"></i>${x.p}</td><td>${cell(x.mis)}</td><td>${cell(x.sti)}</td><td>${cell(x.man)}</td><td>${fmt(x.tot)}</td></tr>`).join("") +
+    list.map(x => `<tr data-p="${x.p}" tabindex="0" role="button" aria-pressed="${!x.off}" title="${x.off ? "Include" : "Exclude"} ${x.p}" style="cursor:pointer${x.off ? ";opacity:.45" : ""}"><td><i style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;box-sizing:border-box;${x.off ? "border:1.5px solid var(--text-muted)" : "background:" + color(x.p)}"></i><span${x.off ? ' style="text-decoration:line-through"' : ""}>${x.p}</span></td><td>${cell(x.mis)}</td><td>${cell(x.sti)}</td><td>${cell(x.man)}</td><td>${fmt(x.tot)}</td></tr>`).join("") +
     `</tbody><tfoot><tr><td>Total</td><td>${fmt(sum("mis"))}</td><td>${fmt(sum("sti"))}</td><td>${fmt(sum("man"))}</td><td>${fmt(sum("tot"))}</td></tr></tfoot>`;
 }
 
+const toggle = e => {
+  const p = e.target.closest("tr[data-p]")?.dataset.p; if (!p) return;
+  state.excl = state.excl.includes(p) ? state.excl.filter(x => x !== p) : [...state.excl, p]; render();
+};
+$("table").addEventListener("click", toggle);
+$("table").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(e); } });
+
 function drawDay() {
-  const rows = ROWS.filter(r => r.date === $("day").value && (!state.proj || r.project === state.proj));
+  const rows = ROWS.filter(r => r.date === $("day").value && keep(r));
   $("daytable").innerHTML = rows.length
     ? `<thead><tr><th>Time</th><th>Project</th><th>Type</th><th>Source</th><th>Hours</th></tr></thead><tbody>` +
       rows.map(r => `<tr><td>${r.start ? r.start + "–" + r.end : "–"}${r.notes ? ` <span style="color:var(--text-muted)">${r.notes}</span>` : ""}</td><td>${r.project}</td><td>${r.type}</td><td>${r.source}</td><td>${fmt(r.hours)}</td></tr>`).join("") +
